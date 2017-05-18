@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	faasHandlers "github.com/alexellis/faas/gateway/handlers"
 	"github.com/alexellis/faas/gateway/metrics"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 
 	"fmt"
@@ -26,11 +30,14 @@ func main() {
 	if err != nil {
 		log.Fatal("Error with Docker client.")
 	}
+
 	dockerVersion, err := dockerClient.ServerVersion(context.Background())
 	if err != nil {
 		log.Fatal("Error with Docker server.\n", err)
 	}
 	log.Printf("API version: %s, %s\n", dockerVersion.APIVersion, dockerVersion.Version)
+
+	registryAuth := getEncodedRegistryAuth()
 
 	metricsOptions := metrics.BuildMetricsOptions()
 	metrics.RegisterMetrics(metricsOptions)
@@ -44,7 +51,7 @@ func main() {
 
 	r.HandleFunc("/system/alert", faasHandlers.MakeAlertHandler(dockerClient))
 	r.HandleFunc("/system/functions", faasHandlers.MakeFunctionReader(metricsOptions, dockerClient)).Methods("GET")
-	r.HandleFunc("/system/functions", faasHandlers.MakeNewFunctionHandler(metricsOptions, dockerClient)).Methods("POST")
+	r.HandleFunc("/system/functions", faasHandlers.MakeNewFunctionHandler(metricsOptions, dockerClient, registryAuth)).Methods("POST")
 	r.HandleFunc("/system/functions", faasHandlers.MakeDeleteFunctionHandler(metricsOptions, dockerClient)).Methods("DELETE")
 
 	fs := http.FileServer(http.Dir("./assets/"))
@@ -74,4 +81,27 @@ func main() {
 	}
 
 	log.Fatal(s.ListenAndServe())
+}
+
+// getEncodedRegistryAuth creates an encoded (json+base64) registry auth string
+// from the following environment variables:
+// - DOCKER_REGISTRY_HOST
+// - DOCKER_REGISTRY_USERNAME
+// - DOCKER_REGISTRY_PASSWORD
+// An empty string is returned if DOCKER_REGISTRY_HOST is not set
+func getEncodedRegistryAuth() string {
+	var encodedRegistryAuth string
+	if os.Getenv("DOCKER_REGISTRY_HOST") != "" {
+		authConfig := types.AuthConfig{
+			ServerAddress: os.Getenv("DOCKER_REGISTRY_HOST"),
+			Username:      os.Getenv("DOCKER_REGISTRY_USERNAME"),
+			Password:      os.Getenv("DOCKER_REGISTRY_PASSWORD"),
+		}
+		jsonAuth, err := json.Marshal(authConfig)
+		if err != nil {
+			log.Fatal("Fail to encode auth as JSON", err)
+		}
+		encodedRegistryAuth = base64.StdEncoding.EncodeToString(jsonAuth)
+	}
+	return encodedRegistryAuth
 }

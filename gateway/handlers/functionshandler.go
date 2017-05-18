@@ -142,7 +142,7 @@ func MakeDeleteFunctionHandler(metricsOptions metrics.MetricOptions, c *client.C
 }
 
 // MakeNewFunctionHandler creates a new function (service) inside the swarm network.
-func MakeNewFunctionHandler(metricsOptions metrics.MetricOptions, c *client.Client) http.HandlerFunc {
+func MakeNewFunctionHandler(metricsOptions metrics.MetricOptions, c *client.Client, encodedRegistryAuth string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		body, _ := ioutil.ReadAll(r.Body)
@@ -160,6 +160,7 @@ func MakeNewFunctionHandler(metricsOptions metrics.MetricOptions, c *client.Clie
 		// w.WriteHeader(http.StatusNotImplemented)
 
 		options := types.ServiceCreateOptions{}
+		options.EncodedRegistryAuth = encodedRegistryAuth
 		spec := makeSpec(&request)
 
 		response, err := c.ServiceCreate(context.Background(), spec, options)
